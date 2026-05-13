@@ -107,6 +107,40 @@ class StorageManager:
         self.guardar_json(relative_path, data)
         return data, True
 
+    def obtener_ultima_pagina_actas_checkpoint(self, ubigeo_distrito):
+        directorio = self.local_path("raw/actas/listado")
+
+        if not os.path.isdir(directorio):
+            return None
+
+        patron = re.compile(rf"^{re.escape(str(ubigeo_distrito))}_pagina_(\\d+)\\.json$")
+        ultima_pagina = None
+        ultimo_mtime = -1.0
+
+        for nombre in os.listdir(directorio):
+            match = patron.match(nombre)
+
+            if not match:
+                continue
+
+            ruta = os.path.join(directorio, nombre)
+
+            try:
+                mtime = os.path.getmtime(ruta)
+            except OSError:
+                continue
+
+            pagina = int(match.group(1))
+
+            if (
+                mtime > ultimo_mtime
+                or (mtime == ultimo_mtime and (ultima_pagina is None or pagina > ultima_pagina))
+            ):
+                ultimo_mtime = mtime
+                ultima_pagina = pagina
+
+        return ultima_pagina
+
     def append_jsonl(self, relative_path, registro):
         self.mkdir_parent(relative_path)
         path = self.local_path(relative_path)
@@ -441,6 +475,15 @@ def obtener_actas_distrito(ubigeo_distrito, storage, sleep_time):
     id_ubigeo_actas = ubigeo_para_actas(ubigeo_distrito)
 
     pagina = 0
+    ultima_pagina_checkpoint = storage.obtener_ultima_pagina_actas_checkpoint(ubigeo_distrito)
+
+    if ultima_pagina_checkpoint is not None:
+        pagina = ultima_pagina_checkpoint
+        print(
+            "Checkpoint detectado en actas; se revisará solo la última página creada:",
+            pagina
+        )
+
     todas_las_actas = []
 
     while True:
