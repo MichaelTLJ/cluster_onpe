@@ -153,6 +153,16 @@ chown ec2-user:ec2-user /home/ec2-user/.bashrc
         SecurityGroupIds=[SECURITY_GROUP_ID],
         SubnetId=SUBNET_ID,
         UserData=user_data_script,
+        BlockDeviceMappings=[
+            {
+                'DeviceName': '/dev/xvda',
+                'Ebs': {
+                    'VolumeSize': 15,      # GB
+                    'VolumeType': 'gp3',
+                    'DeleteOnTermination': True
+                }
+            }
+        ],
         TagSpecifications=[{'ResourceType': 'instance', 'Tags': [{'Key': 'Name', 'Value': 'Worker-ONPE'}, {'Key': 'Rol', 'Value': 'HadoopWorker'}]}]
     )
     
