@@ -1,7 +1,4 @@
-import os
-
-# Contenido detallado para el README.md del proyecto
-readme_content = """# ONPE-CONSULTA: Electoral Data Crawler Distribuido
+# ONPE-CONSULTA: Electoral Data Crawler Distribuido
 
 Sistema de extracción masiva y distribuida de datos electorales de la ONPE (Perú) diseñado para operar sobre un clúster de alto rendimiento en AWS utilizando Hadoop HDFS para el almacenamiento persistente.
 
