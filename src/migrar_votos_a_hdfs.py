@@ -1,6 +1,7 @@
 import subprocess
 import boto3
 import argparse
+import os
 
 # Importamos las variables globales de tu entorno
 from config import REGION, USUARIO_SSH
@@ -46,36 +47,65 @@ def migrar_votos_especificos(ips, directorio_local, hdfs_base):
         
         print(f"\n[+] Conectando al Worker {worker_id} ({ip})...")
         
-        # El comando que ejecutaremos dentro del Worker
-        # 1. Busca el archivo jsonl en cualquier subcarpeta dentro de data_workers
-        # 2. Si lo encuentra, lo sube al HDFS renombrándolo
+        # Copiar el script de limpieza al worker (si existe localmente)
+        local_limpiar = os.path.join(os.path.dirname(__file__), "limpiar_actas.py")
+        if os.path.exists(local_limpiar):
+            scp_cmd = ["scp", "-o", "StrictHostKeyChecking=no", local_limpiar, f"{USUARIO_SSH}@{ip}:/home/{USUARIO_SSH}/limpiar_actas.py"]
+            try:
+                subprocess.run(scp_cmd, check=False)
+                print(f"    Script de limpieza copiado a {ip}")
+            except Exception as e:
+                print(f"    Advertencia: no se pudo copiar script a {ip}: {e}")
+
+        # El comando que ejecutaremos dentro del Worker hace:
+        # 1) Buscar actas (find)
+        # 2) Ejecutar el limpiador remoto `limpiar_actas.py` sobre el archivo si existe
+        # 3) Subir el archivo limpio a HDFS renombrándolo por worker
         comando_worker = f"""
         source ~/.bashrc &&
         ARCHIVO=$(find {directorio_local} -name "actas_detalle_votos.jsonl" | head -n 1) &&
         if [ ! -z "$ARCHIVO" ]; then
-            hdfs dfs -put -f "$ARCHIVO" "{carpeta_destino_hdfs}/votos_{worker_id}.jsonl" && echo "Exito:$ARCHIVO"
+            python3 /home/{USUARIO_SSH}/limpiar_actas.py "$ARCHIVO" && \
+            CLEAN="${{ARCHIVO%.jsonl}}_clean.jsonl" && \
+            if [ -f "$CLEAN" ]; then
+                hdfs dfs -put -f "$CLEAN" "{carpeta_destino_hdfs}/votos_{worker_id}.jsonl" && echo "Exito:$ARCHIVO:$CLEAN" || echo "ErrorHDFS"
+            else
+                echo "NoClean"
+            fi
         else
             echo "Archivo no encontrado"
         fi
         """
-        
+
         # Ejecutamos el comando remotamente vía SSH
         comando_ssh = ["ssh", "-o", "StrictHostKeyChecking=no", f"{USUARIO_SSH}@{ip}", comando_worker]
-        
+
         try:
             resultado = subprocess.run(comando_ssh, capture_output=True, text=True)
-            
+
             if "Exito" in resultado.stdout:
-                # Extraemos la ruta real que encontró para mostrarla en el log
-                ruta_encontrada = resultado.stdout.split("Exito:")[1].strip()
+                # Extraemos la ruta real que encontró y la ruta limpia
+                parts = resultado.stdout.split("Exito:")[1].strip().split(":")
+                ruta_encontrada = parts[0]
+                ruta_clean = parts[1] if len(parts) > 1 else ""
                 print(f"    Votos encontrados en: {ruta_encontrada}")
-                print(f"    Archivo subido a HDFS como: {carpeta_destino_hdfs}/votos_{worker_id}.jsonl")
+                print(f"    Archivo limpio subido a HDFS como: {carpeta_destino_hdfs}/votos_{worker_id}.jsonl")
+                print(f"    Ruta limpia en worker: {ruta_clean}")
             elif "Archivo no encontrado" in resultado.stdout:
                 print(f"    No se encontró 'actas_detalle_votos.jsonl' en {directorio_local}.")
-            else:
-                print(f"    Error subiendo datos de {worker_id}:")
+            elif "NoClean" in resultado.stdout:
+                print(f"    Se encontró el archivo pero el limpiador no generó el archivo limpio en {ip}.")
+                print(resultado.stdout)
                 print(resultado.stderr)
-                
+            elif "ErrorHDFS" in resultado.stdout:
+                print(f"    Error al subir a HDFS desde {worker_id}:")
+                print(resultado.stdout)
+                print(resultado.stderr)
+            else:
+                print(f"    Error procesando datos de {worker_id}:")
+                print(resultado.stdout)
+                print(resultado.stderr)
+
         except Exception as e:
             print(f"    Falla de conexión con {worker_id}: {e}")
 
