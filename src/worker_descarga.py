@@ -67,6 +67,18 @@ class StorageManager:
     def exists(self, relative_path):
         return os.path.exists(self.local_path(relative_path))
 
+    def cargar_json_si_existe(self, relative_path):
+        path = self.local_path(relative_path)
+
+        if not os.path.exists(path):
+            return None
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, JSONDecodeError):
+            return None
+
     def mkdir_parent(self, relative_path):
         path = self.local_path(relative_path)
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -79,6 +91,21 @@ class StorageManager:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
         print("JSON guardado:", path)
+
+    def checkpoint_json(self, relative_path, data_loader):
+        existente = self.cargar_json_si_existe(relative_path)
+
+        if existente is not None:
+            print("JSON ya existe, usando checkpoint:", self.local_path(relative_path))
+            return existente, False
+
+        data = data_loader()
+
+        if data is None:
+            return None, False
+
+        self.guardar_json(relative_path, data)
+        return data, True
 
     def append_jsonl(self, relative_path, registro):
         self.mkdir_parent(relative_path)
@@ -290,18 +317,20 @@ def str_a_bool(valor):
 # ============================================================
 
 def obtener_fecha_listar_fecha(storage):
-    data = get_json(
-        "/fecha/listarFecha",
-        params=None,
-        debug_name="fecha_listarFecha",
-        storage=storage
-    )
+    def _descargar():
+        return get_json(
+            "/fecha/listarFecha",
+            params=None,
+            debug_name="fecha_listarFecha",
+            storage=storage
+        )
+
+    data, _ = storage.checkpoint_json("raw/fecha/listarFecha.json", _descargar)
 
     if not data:
         print("No se pudo obtener fecha/listarFecha")
         return None
 
-    storage.guardar_json("raw/fecha/listarFecha.json", data)
     return data.get("data")
 
 
@@ -311,18 +340,20 @@ def obtener_departamentos(storage):
         "idAmbitoGeografico": ID_AMBITO_GEOGRAFICO
     }
 
-    data = get_json(
-        "/ubigeos/departamentos",
-        params=params,
-        debug_name="departamentos",
-        storage=storage
-    )
+    def _descargar():
+        return get_json(
+            "/ubigeos/departamentos",
+            params=params,
+            debug_name="departamentos",
+            storage=storage
+        )
+
+    data, _ = storage.checkpoint_json("raw/ubigeos/departamentos/departamentos.json", _descargar)
 
     if not data:
         print("No se pudo obtener departamentos")
         return []
 
-    storage.guardar_json("raw/ubigeos/departamentos/departamentos.json", data)
     return data.get("data", [])
 
 
@@ -333,21 +364,21 @@ def obtener_provincias(ubigeo_departamento, storage):
         "idUbigeoDepartamento": ubigeo_departamento
     }
 
-    data = get_json(
-        "/ubigeos/provincias",
-        params=params,
-        debug_name=f"provincias_{ubigeo_departamento}",
-        storage=storage
-    )
+    ruta = f"raw/ubigeos/provincias/{ubigeo_departamento}.json"
+
+    def _descargar():
+        return get_json(
+            "/ubigeos/provincias",
+            params=params,
+            debug_name=f"provincias_{ubigeo_departamento}",
+            storage=storage
+        )
+
+    data, _ = storage.checkpoint_json(ruta, _descargar)
 
     if not data:
         print("No se pudo obtener provincias de:", ubigeo_departamento)
         return []
-
-    storage.guardar_json(
-        f"raw/ubigeos/provincias/{ubigeo_departamento}.json",
-        data
-    )
 
     return data.get("data", [])
 
@@ -359,21 +390,21 @@ def obtener_distritos(ubigeo_provincia, storage):
         "idUbigeoProvincia": ubigeo_provincia
     }
 
-    data = get_json(
-        "/ubigeos/distritos",
-        params=params,
-        debug_name=f"distritos_{ubigeo_provincia}",
-        storage=storage
-    )
+    ruta = f"raw/ubigeos/distritos/{ubigeo_provincia}.json"
+
+    def _descargar():
+        return get_json(
+            "/ubigeos/distritos",
+            params=params,
+            debug_name=f"distritos_{ubigeo_provincia}",
+            storage=storage
+        )
+
+    data, _ = storage.checkpoint_json(ruta, _descargar)
 
     if not data:
         print("No se pudo obtener distritos de:", ubigeo_provincia)
         return []
-
-    storage.guardar_json(
-        f"raw/ubigeos/distritos/{ubigeo_provincia}.json",
-        data
-    )
 
     return data.get("data", [])
 
@@ -383,21 +414,21 @@ def obtener_locales_distrito(ubigeo_distrito, storage):
         "idUbigeo": ubigeo_distrito
     }
 
-    data = get_json(
-        "/ubigeos/locales",
-        params=params,
-        debug_name=f"locales_{ubigeo_distrito}",
-        storage=storage
-    )
+    ruta = f"raw/locales/{ubigeo_distrito}.json"
+
+    def _descargar():
+        return get_json(
+            "/ubigeos/locales",
+            params=params,
+            debug_name=f"locales_{ubigeo_distrito}",
+            storage=storage
+        )
+
+    data, _ = storage.checkpoint_json(ruta, _descargar)
 
     if not data:
         print("No se pudo obtener locales de:", ubigeo_distrito)
         return []
-
-    storage.guardar_json(
-        f"raw/locales/{ubigeo_distrito}.json",
-        data
-    )
 
     return data.get("data", [])
 
@@ -415,12 +446,11 @@ def obtener_actas_distrito(ubigeo_distrito, storage, sleep_time):
     while True:
         ruta_pagina = f"raw/actas/listado/{ubigeo_distrito}_pagina_{pagina}.json"
 
-        if storage.exists(ruta_pagina):
-            print(f"Página ya existente, leyendo localmente: {ruta_pagina}")
+        existente = storage.cargar_json_si_existe(ruta_pagina)
 
-            with open(storage.local_path(ruta_pagina), "r", encoding="utf-8") as f:
-                data = json.load(f)
-
+        if existente is not None:
+            print(f"Página ya existente, usando checkpoint: {ruta_pagina}")
+            data = existente
         else:
             params = {
                 "pagina": pagina,
@@ -486,13 +516,11 @@ def obtener_detalle_acta(id_acta, storage):
 
     ruta_detalle = f"raw/actas/detalle/{id_acta}.json"
 
-    if storage.exists(ruta_detalle):
-        print("Detalle ya existente, leyendo localmente:", id_acta)
+    existente = storage.cargar_json_si_existe(ruta_detalle)
 
-        with open(storage.local_path(ruta_detalle), "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        return data.get("data")
+    if existente is not None:
+        print("Detalle ya existente, usando checkpoint:", id_acta)
+        return existente.get("data")
 
     data = get_json(
         endpoint,
