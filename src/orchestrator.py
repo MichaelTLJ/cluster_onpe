@@ -235,13 +235,13 @@ def main():
         print("    -> Iniciando descarga masiva...")
         comando_ssh = [
             "ssh", "-o", "StrictHostKeyChecking=no", f"{USUARIO_SSH}@{ip_worker}",
-            f"nohup python3 {ruta_script_remota} --ubigeos {parametro_ubigeos} --storage local > /home/{USUARIO_SSH}/worker_{id_worker}.log 2>&1 &"
+            f"nohup python3 {ruta_script_remota} --ubigeos {parametro_ubigeos} --storage local --sleep 0.04 > /home/{USUARIO_SSH}/worker_{id_worker}.log 2>&1 &"
         ]
         subprocess.Popen(comando_ssh)
 
     print("\n" + "="*60)
     print("¡TODOS LOS WORKERS HAN SIDO DESPLEGADOS!")
-    print("Las máquinas están trabajando en segundo plano y subirán todo a Hadoop al terminar.")
+    print("Las máquinas están trabajando en segundo plano.")
     print("="*60)
 
 if __name__ == "__main__":
